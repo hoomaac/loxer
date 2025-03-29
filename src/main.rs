@@ -33,7 +33,7 @@ fn parse(args: &Args) -> miette::Result<()> {
                 let token = token?;
                 println!("{token}");
             }
-
+            println!("EOF null");
         },
     }
 
