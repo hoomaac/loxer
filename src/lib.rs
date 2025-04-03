@@ -161,7 +161,7 @@ impl<'a> Iterator for Lexer<'a> {
                 '=' => Started::IfEqualElse(TokenType::EqualEqual, TokenType::Equal),
                 '!' => Started::IfEqualElse(TokenType::BandEqual, TokenType::Bang),
                 '0'..='9' => Started::Number,
-                'a'..='z' | '_' => Started::Identifier,
+                'a'..='z' | 'A'..='Z' | '_' => Started::Identifier,
                 c if c.is_whitespace() => continue,
                 _ => {
                     return Some(Err(miette::miette!(
@@ -177,7 +177,44 @@ impl<'a> Iterator for Lexer<'a> {
 
             break match started {
                 Started::String => todo!(),
-                Started::Number => todo!(),
+                Started::Number => {
+                    let first_non_digit = c_onwards
+                        .find(|c| !matches!(c, '.' | '0'..='9'))
+                        .unwrap_or_else(|| c_onwards.len());
+
+                    let mut literal_str = &c_onwards[..first_non_digit];
+
+                    let mut dotted = literal_str.splitn(3, '.');
+
+                    if let (Some(one), Some(two), Some(_)) =
+                        (dotted.next(), dotted.next(), dotted.next())
+                    {
+                        literal_str = &literal_str[..one.len() + 1 + two.len()];
+                    }
+
+                    let bytes = literal_str.len() - c.len_utf8();
+                    self.byte += bytes;
+                    self.rest = &self.rest[bytes..];
+
+                    let val = match literal_str.parse() {
+                        Ok(val) => val,
+                        Err(e) => {
+                            return Some(Err(miette::miette!(
+                                labels = vec![LabeledSpan::at(
+                                    self.byte - literal_str.len()..self.byte,
+                                    "this numeric literal"
+                                ),],
+                                "{e:?}",
+                            )
+                            .with_source_code(self.whole.to_string())));
+                        }
+                    };
+
+                    return Some(Ok(Token {
+                        token_type: TokenType::Number(val),
+                        original: literal_str,
+                    }));
+                }
                 Started::Identifier => todo!(),
                 Started::IfEqualElse(yes, no) => {
                     self.rest = self.rest.trim_start();
