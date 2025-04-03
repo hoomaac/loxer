@@ -67,7 +67,7 @@ impl<'a> fmt::Display for Token<'a> {
             TokenType::String => write!(f, "STRING {original} {}", Token::unescpaed(original)),
             TokenType::Number(n) => write!(f, "NUMBER {original} {n}"),
             TokenType::Identifier => write!(f, "IDENTIFIER {original} null"),
-            TokenType::And => write!(f, "And {original} null"),
+            TokenType::And => write!(f, "AND {original} null"),
             TokenType::Class => write!(f, "CLASS {original} null"),
             TokenType::Else => write!(f, "ELSE {original} null"),
             TokenType::False => write!(f, "FALSE {original} null"),
@@ -86,8 +86,8 @@ impl<'a> fmt::Display for Token<'a> {
             TokenType::EqualEqual => write!(f, "EQUALEQUAL {original} null"),
             TokenType::LessEqual => write!(f, "LESSEQUAL {original} null"),
             TokenType::GreaterEqual => write!(f, "GREATEREQUAL {original} null"),
-            TokenType::Less => write!(f, "Less {original} null"),
-            TokenType::Greater => write!(f, "Greater {original} null"),
+            TokenType::Less => write!(f, "LESS {original} null"),
+            TokenType::Greater => write!(f, "GREATER {original} null"),
             TokenType::Slash => write!(f, "SLASH {original} null"),
             TokenType::Bang => write!(f, "BANG {original} null"),
             TokenType::Equal => write!(f, "EQUAL {original} null"),
@@ -186,10 +186,14 @@ impl<'a> Iterator for Lexer<'a> {
 
                     let mut dotted = literal_str.splitn(3, '.');
 
-                    if let (Some(one), Some(two), Some(_)) =
-                        (dotted.next(), dotted.next(), dotted.next())
-                    {
-                        literal_str = &literal_str[..one.len() + 1 + two.len()];
+                    match (dotted.next(), dotted.next(), dotted.next()) {
+                        (Some(one), Some(two), Some(_)) => {
+                            literal_str = &literal_str[..one.len() + 1 + two.len()];
+                        }
+                        (Some(one), Some(two), None) if two.is_empty() => {
+                            literal_str = &literal_str[..one.len()];
+                        }
+                        _ => {}
                     }
 
                     let bytes = literal_str.len() - c.len_utf8();
@@ -215,7 +219,41 @@ impl<'a> Iterator for Lexer<'a> {
                         original: literal_str,
                     }));
                 }
-                Started::Identifier => todo!(),
+                Started::Identifier => {
+                    let first_non_ident = c_onwards
+                        .find(|c| !matches!(c, 'a'..='z' | 'A'..='Z' | '0'..='9' | '_'))
+                        .unwrap_or_else(|| c_onwards.len());
+
+                    let literal_str = &c_onwards[..first_non_ident];
+
+                    let bytes = literal_str.len() - c.len_utf8();
+                    self.byte += bytes;
+                    self.rest = &self.rest[bytes..];
+
+                    let token_type = match literal_str {
+                        "and" => TokenType::And,
+                        "class" => TokenType::Class,
+                        "else" => TokenType::Else,
+                        "false" => TokenType::False,
+                        "for" => TokenType::For,
+                        "fun" => TokenType::Fun,
+                        "if" => TokenType::If,
+                        "nil" => TokenType::Nil,
+                        "or" => TokenType::Or,
+                        "return" => TokenType::Return,
+                        "super" => TokenType::Super,
+                        "this" => TokenType::This,
+                        "true" => TokenType::True,
+                        "var" => TokenType::Var,
+                        "while" => TokenType::While,
+                        _ => TokenType::Identifier,
+                    };
+
+                    return Some(Ok(Token {
+                        token_type,
+                        original: literal_str,
+                    }));
+                }
                 Started::IfEqualElse(yes, no) => {
                     self.rest = self.rest.trim_start();
                     let trimmed = c_onwards.len() - self.rest.len() - 1;
