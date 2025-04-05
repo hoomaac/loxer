@@ -22,6 +22,23 @@ impl TokenError {
     }
 }
 
+#[derive(Diagnostic, Debug, Error)]
+#[error("Unterminated string")]
+pub struct StringUnterminatedError {
+    // The `Source` that miette will use.
+    #[source_code]
+    src: String,
+
+    #[label = "This string"]
+    err_span: SourceSpan,
+}
+
+impl StringUnterminatedError {
+    pub fn line(&self) -> usize {
+        self.src[..=self.err_span.offset()].lines().count()
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub struct Token<'a> {
     token_type: TokenType,
@@ -116,7 +133,7 @@ impl<'a> fmt::Display for Token<'a> {
 
 impl Token<'_> {
     fn unescpaed<'a>(s: &'a str) -> Cow<'a, str> {
-        todo!()
+        Cow::Borrowed(s.trim_matches('"'))
     }
 }
 
@@ -194,7 +211,26 @@ impl<'a> Iterator for Lexer<'a> {
             };
 
             break match started {
-                Started::String => todo!(),
+                Started::String => {
+                    if let Some(end_quote) = self.rest.find('"') {
+                        self.byte += end_quote + 1;
+                        self.rest = &self.rest[end_quote + 1..];
+
+                        Some(Ok(Token {
+                            token_type: TokenType::String,
+                            original: &c_onwards[..end_quote + 2], // 2 because we want to include starting and terminating ones,
+                        }))
+                    } else {
+                        let unterm_err = StringUnterminatedError {
+                            src: self.whole.to_string(),
+                            err_span: SourceSpan::from(self.byte - c.len_utf8()..self.whole.len()),
+                        };
+
+                        self.byte += self.rest.len();
+                        self.rest = &self.rest[self.rest.len()..];
+                        return Some(Err(unterm_err.into()));
+                    }
+                }
                 Started::Slash => {
                     if self.rest.starts_with('/') {
                         // This line is a comment

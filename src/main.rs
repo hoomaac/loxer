@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use loxer::{Lexer, TokenError};
+use loxer::{Lexer, StringUnterminatedError, TokenError};
 use miette::{Context, IntoDiagnostic};
 use std::{fs, io, path::PathBuf};
 
@@ -40,6 +40,10 @@ fn parse(args: &Args) -> miette::Result<()> {
                                 invalid.line(),
                                 invalid.token
                             );
+                        } else if let Some(unter_str) = e.downcast_ref::<StringUnterminatedError>()
+                        {
+                            has_error = true;
+                            eprintln!("[line {}] Unterminated string", unter_str.line());
                         }
                         continue;
                     }
