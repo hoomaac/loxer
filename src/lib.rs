@@ -78,6 +78,7 @@ pub enum TokenType {
     If,
     Nil,
     Or,
+    Print,
     Return,
     Super,
     This,
@@ -101,7 +102,13 @@ impl<'a> fmt::Display for Token<'a> {
             TokenType::Semicolon => write!(f, "SEMICOLON {original} null"),
             TokenType::Star => write!(f, "STAR {original} null"),
             TokenType::String => write!(f, "STRING {original} {}", Token::unescpaed(original)),
-            TokenType::Number(n) => write!(f, "NUMBER {original} {n}"),
+            TokenType::Number(n) => {
+                if n.trunc() == n {
+                    write!(f, "NUMBER {original} {n}.0")
+                } else {
+                    write!(f, "NUMBER {original} {n}")
+                }
+            }
             TokenType::Identifier => write!(f, "IDENTIFIER {original} null"),
             TokenType::And => write!(f, "AND {original} null"),
             TokenType::Class => write!(f, "CLASS {original} null"),
@@ -112,6 +119,7 @@ impl<'a> fmt::Display for Token<'a> {
             TokenType::If => write!(f, "IF {original} null"),
             TokenType::Nil => write!(f, "NIL {original} null"),
             TokenType::Or => write!(f, "OR {original} null"),
+            TokenType::Print => write!(f, "PRINT {original} null"),
             TokenType::Return => write!(f, "RETURN {original} null"),
             TokenType::Super => write!(f, "SUPER {original} null"),
             TokenType::This => write!(f, "THIS {original} null"),
@@ -309,6 +317,7 @@ impl<'a> Iterator for Lexer<'a> {
                         "nil" => TokenType::Nil,
                         "or" => TokenType::Or,
                         "return" => TokenType::Return,
+                        "print" => TokenType::Print,
                         "super" => TokenType::Super,
                         "this" => TokenType::This,
                         "true" => TokenType::True,
