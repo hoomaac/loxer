@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use loxer::{Lexer, StringUnterminatedError, TokenError};
+use loxer::{lex, Lexer};
 use miette::{Context, IntoDiagnostic};
 use std::{fs, io, path::PathBuf};
 
@@ -33,14 +33,15 @@ fn parse(args: &Args) -> miette::Result<()> {
                     Ok(t) => t,
                     Err(e) => {
                         eprintln!("{e:?}");
-                        if let Some(invalid) = e.downcast_ref::<TokenError>() {
+                        if let Some(invalid) = e.downcast_ref::<lex::TokenError>() {
                             has_error = true;
                             eprintln!(
                                 "[line {}] Error: Invalid character: {}",
                                 invalid.line(),
                                 invalid.token
                             );
-                        } else if let Some(unter_str) = e.downcast_ref::<StringUnterminatedError>()
+                        } else if let Some(unter_str) =
+                            e.downcast_ref::<lex::StringUnterminatedError>()
                         {
                             has_error = true;
                             eprintln!("[line {}] Unterminated string", unter_str.line());
