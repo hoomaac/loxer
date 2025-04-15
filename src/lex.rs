@@ -39,13 +39,18 @@ impl StringUnterminatedError {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Diagnostic, Debug, Error)]
+#[error("Unterminated string")]
+pub struct Eof;
+
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub struct Token<'a> {
     pub token_type: TokenType,
+    pub offset: usize,
     pub original: &'a str,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum TokenType {
     LeftParen,
     RightParen,
@@ -149,6 +154,7 @@ pub struct Lexer<'a> {
     whole: &'a str,
     rest: &'a str,
     byte: usize,
+    peak: Option<Result<Token<'a>, miette::Error>>,
 }
 
 impl<'a> Lexer<'a> {
@@ -157,7 +163,42 @@ impl<'a> Lexer<'a> {
             whole: input,
             rest: input,
             byte: 0,
+            peak: None,
         }
+    }
+}
+
+impl<'a> Lexer<'a> {
+    pub fn expect(
+        &mut self,
+        next: TokenType,
+        unexpected: &str,
+    ) -> Result<Token<'a>, miette::Error> {
+        match self.next() {
+            Some(Ok(token)) if token.token_type == next => Ok(token),
+            Some(Ok(token)) => {
+                return Err(miette::miette!(
+                    labels = vec![
+                        LabeledSpan::at(token.offset..token.offset + token.original.len(), "here"),
+                        help = "Exptected {next:?}",
+                        "{unexpected}"
+                    ],
+                )
+                .with_source_code(self.whole.to_string()));
+            }
+            Some(Err(e)) => Err(e),
+            None => Err(Eof.into()),
+        }
+    }
+
+    pub fn peek(&mut self) -> Option<&Result<Token<'a>, miette::Error>> {
+        if self.peak.is_some() {
+            return self.peak;
+        }
+
+        self.peak = self.next();
+
+        self.peak.as_ref()
     }
 }
 
@@ -169,6 +210,7 @@ impl<'a> Iterator for Lexer<'a> {
             let mut chars = self.rest.chars();
             let c = chars.next()?;
             let c_str = &self.rest[..c.len_utf8()];
+            let c_at = self.byte;
             let c_onwards = self.rest;
             self.byte += c.len_utf8();
             self.rest = chars.as_str();
@@ -176,6 +218,7 @@ impl<'a> Iterator for Lexer<'a> {
             let get_token = |token_type: TokenType| {
                 Some(Ok(Token {
                     token_type,
+                    offset: c_at,
                     original: c_str,
                 }))
             };
@@ -226,6 +269,7 @@ impl<'a> Iterator for Lexer<'a> {
 
                         Some(Ok(Token {
                             token_type: TokenType::String,
+                            offset: c_at,
                             original: &c_onwards[..end_quote + 2], // 2 because we want to include starting and terminating ones,
                         }))
                     } else {
@@ -249,6 +293,7 @@ impl<'a> Iterator for Lexer<'a> {
                     } else {
                         Some(Ok(Token {
                             token_type: TokenType::Slash,
+                            offset: c_at,
                             original: c_str,
                         }))
                     }
@@ -292,6 +337,7 @@ impl<'a> Iterator for Lexer<'a> {
 
                     return Some(Ok(Token {
                         token_type: TokenType::Number(val),
+                        offset: c_at,
                         original: literal_str,
                     }));
                 }
@@ -328,6 +374,7 @@ impl<'a> Iterator for Lexer<'a> {
 
                     return Some(Ok(Token {
                         token_type,
+                        offset: c_at,
                         original: literal_str,
                     }));
                 }
@@ -342,11 +389,13 @@ impl<'a> Iterator for Lexer<'a> {
                         self.byte += 1;
                         Some(Ok(Token {
                             token_type: yes,
+                            offset: c_at,
                             original: span,
                         }))
                     } else {
                         Some(Ok(Token {
                             token_type: no,
+                            offset: c_at,
                             original: c_str,
                         }))
                     }
