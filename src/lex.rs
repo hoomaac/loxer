@@ -171,11 +171,19 @@ impl<'a> Lexer<'a> {
 impl<'a> Lexer<'a> {
     pub fn expect(
         &mut self,
-        next: TokenType,
+        expected: TokenType,
+        unexpected: &str,
+    ) -> Result<Token<'a>, miette::Error> {
+        self.expect_where(|next| next.token_type == expected, unexpected)
+    }
+
+    pub fn expect_where(
+        &mut self,
+        mut check: impl FnMut(&Token<'a>) -> bool,
         unexpected: &str,
     ) -> Result<Token<'a>, miette::Error> {
         match self.next() {
-            Some(Ok(token)) if token.token_type == next => Ok(token),
+            Some(Ok(token)) if check(&token) => Ok(token),
             Some(Ok(token)) => {
                 return Err(miette::miette!(
                     labels = vec![

@@ -26,6 +26,16 @@ impl<'a> Parser<'a> {
         self.parse_internal(0)
     }
 
+    pub fn parse_block(&mut self) -> Result<TokenTree<'a>, Error> {
+        self.lexer.expect(TokenType::LeftBrace, "missing {")?;
+
+        let block = self.parse_internal(0)?;
+
+        self.lexer.expect(TokenType::RightBrace, "missing }")?;
+
+        Ok(block)
+    }
+
     pub fn parse_internal(&mut self, min_bp: u8) -> Result<Option<TokenTree<'a>>, Error> {
         let lhs = match self.lexer.next() {
             Some(Ok(token)) => token,
@@ -82,7 +92,6 @@ impl<'a> Parser<'a> {
                     .wrap_err_with("after bracketed expression")?;
                 lhs
             }
-            // unary prefix expression
             Token {
                 token_type:
                     TokenType::Bang | TokenType::Print | TokenType::Minus | TokenType::Return,
@@ -100,7 +109,6 @@ impl<'a> Parser<'a> {
                 let rhs = self.parse_internal(r_bp).wrap_err("in right-hand side")?;
                 TokenTree::Cons(op, vec![rhs])
             }
-            // prefix, two arguments
             Token {
                 token_type: TokenType::Class | TokenType::Var,
                 ..
@@ -163,17 +171,7 @@ impl<'a> Parser<'a> {
                     .expect(TokenType::RightParen, "missing )")
                     .wrap_err("in for loop condition")?;
 
-                self.lexer
-                    .expect(TokenType::LeftBrace, "missing {")
-                    .wrap_err("in block of for loop")?;
-
-                let block = self
-                    .parse_internal(0)
-                    .wrap_err_with(|| format!("in block of for loop"))?;
-
-                self.lexer
-                    .expect(TokenType::RightBrace, "missing }")
-                    .wrap_err("in the block of for loop")?;
+                let block = self.parse_block().wrap_err("in for loop")?;
 
                 TokenTree::Cons(Op::For, vec![init, cond, inc, block])
             }
@@ -191,19 +189,10 @@ impl<'a> Parser<'a> {
                     .expect(TokenType::RightParen, "missing )")
                     .wrap_err_with("in while loop condition")?;
 
-                self.lexer
-                    .expect(TokenType::LeftBrace, "missing {")
-                    .wrap_err_with("in block of for loop")?;
-
-                let block = self.parse_internal(0).wrap_err("in block of for loop")?;
-
-                self.lexer
-                    .expect(TokenType::RightBrace, "missing }")
-                    .wrap_err_with("in the block of for loop")?;
+                let block = self.parse_block().wrap_err("in while loop")?;
 
                 TokenTree::Cons(Op::While, vec![cond, block])
             }
-            // prefix, three arguments
             Token {
                 token_type: TokenType::Class | TokenType::Var,
                 ..
@@ -216,7 +205,7 @@ impl<'a> Parser<'a> {
 
                 let token = self
                     .lexer
-                    .expect(TokenType::Equal, "missing =")
+                    .expect(TokenType::Identifier, "expected identifier")
                     .wrap_err_with(|| format!("in name of {op:?}"))?;
 
                 assert_eq!(token.token_type, TokenType::Identifier);
@@ -240,8 +229,8 @@ impl<'a> Parser<'a> {
             } => {
                 let token = self
                     .lexer
-                    .expect(TokenType::Equal, "missing =")
-                    .wrap_err("in name of function")?;
+                    .expect(TokenType::Identifier, "expected identifier")
+                    .wrap_err("in function name declaration")?;
 
                 assert_eq!(token.token_type, TokenType::Identifier);
                 let name = token.original;
@@ -251,50 +240,77 @@ impl<'a> Parser<'a> {
 
                 self.lexer
                     .expect(TokenType::LeftParen, "missing (")
-                    .wrap_err("in function parameter list");
+                    .wrap_err_with(|| format!("in parameter list of function {name}"));
 
-                while self.lexer.peek().map_or(false, |next| {
-                    next.map_or(false, |next| next.token_type != TokenType::RightParen)
-                }) {
-                    let param = self.parse_internal(0).wrap_err_with(|| {
-                        format!("in parameter #{} of function {name}", params.len() + 1)
-                    })?;
+                if matches!(
+                    self.lexer.peek(),
+                    Some(Ok(Token {
+                        token_type: TokenType::RightParen,
+                        ..
+                    }))
+                ) {
+                } else {
+                    loop {
+                        let param = self.parse_internal(0).wrap_err_with(|| {
+                            format!("in parameter #{} of function {name}", params.len() + 1)
+                        })?;
+
+                        params.push(param);
+
+                        let token = self
+                            .lexer
+                            .expect_where(
+                                |token| {
+                                    matches!(
+                                        token.token_type,
+                                        TokenType::RightParen | TokenType::Comma
+                                    )
+                                },
+                                "continuing parameter list",
+                            )
+                            .wrap_err_with(|| format!("in parameter list of function {name}"))?;
+
+                        if token.token_type == TokenType::RightParen {
+                            break;
+                        }
+                    }
                 }
 
-                let first = self
-                    .parse_internal(0)
-                    .wrap_err_with(|| format!("in first argument of {op:?}"))?;
-                let second = self
-                    .parse_internal(0)
-                    .wrap_err_with(|| format!("in second argument of {op:?}"))?;
-                let third = self
-                    .parse_internal(0)
-                    .wrap_err_with(|| format!("in third argument of {op:?}"))?;
+                let block = self
+                    .parse_block()
+                    .wrap_err_with(|| format!("for body of function {name}"))?;
 
-                TokenTree::Cons(op, vec![first, second, third])
+                TokenTree::Fun(ident, params, block)
             }
-            // prefix, four arguments
             Token {
-                token_type: TokenType::For | TokenType::If,
+                token_type: TokenType::If,
                 ..
             } => {
-                let op = match lhs.token_type {
-                    TokenType::Var => Op::Var,
-                    TokenType::Fun => Op::Fun,
-                    _ => unreachable!("by the outer match arm pattern"),
-                };
+                self.lexer
+                    .expect(TokenType::LeftParen, "missing (")
+                    .wrap_err_with("in while loop condition")?;
 
-                let first = self
-                    .parse_internal(0)
-                    .wrap_err_with(|| format!("in {op:?} expression"))?;
-                let second = self
-                    .parse_internal(0)
-                    .wrap_err_with(|| format!("in {op:?} expression"))?;
-                let third = self
-                    .parse_internal(0)
-                    .wrap_err_with(|| format!("in {op:?} expression"))?;
+                let cond = self.parse_internal(0).wrap_err("in while loop condition")?;
 
-                TokenTree::Cons(op, vec![first, second, third])
+                self.lexer
+                    .expect(TokenType::RightParen, "missing )")
+                    .wrap_err_with("in while loop condition")?;
+
+                let block = self.parse_internal(0).wrap_err("in body of if")?;
+
+                let mut otherwise = None;
+                if matches!(
+                    self.lexer.peek(),
+                    Some(Ok(Token {
+                        token_type: TokenType::Else,
+                        ..
+                    }))
+                ) {
+                    self.lexer.next();
+                    otherwise = Some(self.parse_block().wrap_err("in blody of else")?);
+                }
+
+                TokenTree::If(cond, block, otherwise)
             }
             t => panic!("bad token: {:?}", t),
         };
@@ -416,6 +432,8 @@ enum Delimiter {
 enum TokenTree<'a> {
     Atom(Atom<'a>),
     Cons(Op, Vec<TokenTree<'a>>),
+    Fun(Atom<'a>, Vec<TokenTree<'a>>, TokenTree<'a>),
+    If(TokenTree<'a>, TokenTree<'a>, Option<TokenTree<'a>>),
 }
 impl fmt::Display for TokenTree<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
