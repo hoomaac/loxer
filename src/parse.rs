@@ -37,7 +37,7 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse_statement_internal(&mut self, min_bp: u8) -> Result<Option<TokenTree<'a>>, Error> {
-        let lhs = match self.lexer.next() {
+        let first = match self.lexer.next() {
             Some(Ok(token)) => token,
             None => return Ok(Some(TokenTree::Atom(Atom::Nil))),
             Some(Err(e)) => {
@@ -45,7 +45,24 @@ impl<'a> Parser<'a> {
             }
         };
 
-        let mut lhs = match lhs {
+        match first {
+            Token {
+                token_type: TokenType::Identifier,
+                original,
+                ..
+            } => TokenTree::Atom(Atom::Ident(original)),
+            Token {
+                token_type: TokenType::LeftParen,
+                ..
+            } => {
+                let lhs = self
+                    .parse_expression_internal(0)
+                    .wrap_err("in bracketed expression")?;
+                self.lexer
+                    .expect(TokenType::RightParen, "Unexpected bracketed expression")
+                    .wrap_err("after bracketed expression")?;
+                lhs
+            }
             Token {
                 token_type: TokenType::Print | TokenType::Return,
                 ..
@@ -419,7 +436,9 @@ impl<'a> Parser<'a> {
                     _ => unreachable!("by the outer match arm pattern"),
                 };
 
-                let lhs = self.parse_internal(0).wrap_err("in bracketed expression")?;
+                let lhs = self
+                    .parse_expression_internal(0)
+                    .wrap_err("in bracketed expression")?;
                 self.lexer
                     .expect(terminator, "Unexpected bracketed expression")
                     .wrap_err_with("after bracketed expression")?;

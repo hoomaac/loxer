@@ -214,6 +214,8 @@ impl<'a> Iterator for Lexer<'a> {
     type Item = Result<Token<'a>, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        self.peak = None;
+
         loop {
             let mut chars = self.rest.chars();
             let c = chars.next()?;
